@@ -39,10 +39,17 @@ static struct temperature temperature = {
 };
 
 #if defined(CONFIG_NRF_802154_TEMPERATURE_UPDATE)
+
+#include <../src/nrf_802154_debug_log.h>
+
+#define NRF_802154_MODULE_ID 34U
+
 static void work_handler(struct k_work *work)
 {
 	struct sensor_value val;
 	int err;
+
+	nrf_802154_log_function_enter(NRF_802154_LOG_VERBOSITY_LOW);
 
 	err = sensor_sample_fetch(temperature.dev);
 	if (!err) {
@@ -56,6 +63,8 @@ static void work_handler(struct k_work *work)
 	}
 
 	k_work_reschedule(&temperature.work, K_MSEC(CONFIG_NRF_802154_TEMPERATURE_UPDATE_PERIOD));
+
+	nrf_802154_log_function_exit(NRF_802154_LOG_VERBOSITY_LOW);
 }
 
 static int temperature_update_init(const struct device *dev)
