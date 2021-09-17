@@ -1349,7 +1349,7 @@ int shell_init(const struct shell *shell, const void *transport_config,
 			      shell->stack, CONFIG_SHELL_STACK_SIZE,
 			      shell_thread, (void *)shell, (void *)log_backend,
 			      UINT_TO_POINTER(init_log_level),
-			      K_LOWEST_APPLICATION_THREAD_PRIO, 0, K_NO_WAIT);
+			      K_LOWEST_APPLICATION_THREAD_PRIO - 1, 0, K_NO_WAIT);
 
 	shell->ctx->tid = tid;
 	k_thread_name_set(tid, shell->thread_name);
