@@ -11,8 +11,12 @@
 extern "C" {
 #endif
 
+/** @brief Maximum allowed time span that is considered to be in the future.
+ */
+#define NRF_RTC_TIMER_MAX_SCHEDULE_SPAN (BIT(24) - 1)
+
 typedef void (*z_nrf_rtc_timer_compare_handler_t)(int32_t id,
-						uint32_t cc_value,
+						uint64_t expire_time,
 						void *user_data);
 
 /** @brief Allocate RTC compare channel.
@@ -30,11 +34,11 @@ int32_t z_nrf_rtc_timer_chan_alloc(void);
  */
 void z_nrf_rtc_timer_chan_free(int32_t chan);
 
-/** @brief Read current RTC counter value.
+/** @brief Read current absolute time.
  *
- * @return Current RTC counter value.
+ * @return Current absolute time.
  */
-uint32_t z_nrf_rtc_timer_read(void);
+uint64_t z_nrf_rtc_timer_read(void);
 
 /** @brief Get COMPARE event register address.
  *
@@ -76,28 +80,35 @@ uint32_t z_nrf_rtc_timer_compare_read(int32_t chan);
 
 /** @brief  Try to set compare channel to given value.
  *
- * Provided value is absolute and cannot be further in future than half span of
- * the RTC counter. Function continouosly retries to set compare register until
- * value that is written is far enough in the future and will generate an event.
- * Because of that, compare register value may be different than the one
- * requested. During this operation interrupt from that compare channel is
- * disabled. Other interrupts are not locked during this operation.
- *
- * There is no option to abort the request once it is set. However, it can be
- * overwritten.
+ * Provided value is absolute and cannot be further in the future than
+ * @c NRF_RTC_TIMER_MAX_SCHEDULE_SPAN. Function continuously retries to set
+ * compare register until value that is written is far enough in the future
+ * and will generate an event. Because of that, compare register value may be
+ * different than the one requested. During this operation interrupt from that
+ * compare channel is disabled. Other interrupts are not locked during this
+ * operation.
  *
  * @param chan Channel ID between 1 and CONFIG_NRF_RTC_TIMER_USER_CHAN_COUNT.
  *
- * @param cc_value Absolute value. Values which are further distanced from
- * current counter value than half RTC span are considered in the past.
+ * @param target_time Absolute target time in ticks.
  *
  * @param handler User function called in the context of the RTC interrupt.
  *
  * @param user_data Data passed to the handler.
+ *
+ * @retval 0 if the compare channel was set successfully.
+ * @retval -EINVAL if provided target time was further than
+ *         @c NRF_RTC_TIMER_MAX_SCHEDULE_SPAN ticks in the future.
  */
-void z_nrf_rtc_timer_compare_set(int32_t chan, uint32_t cc_value,
-			       z_nrf_rtc_timer_compare_handler_t handler,
-			       void *user_data);
+int z_nrf_rtc_timer_set(int32_t chan, uint64_t target_time,
+			 z_nrf_rtc_timer_compare_handler_t handler,
+			 void *user_data);
+
+/** @brief Abort a timer requested with @ref z_nrf_rtc_timer_set.
+ *
+ * @param chan Channel ID between 1 and CONFIG_NRF_RTC_TIMER_USER_CHAN_COUNT.
+ */
+void z_nrf_rtc_timer_abort(int32_t chan);
 
 /** @brief Convert system clock time to RTC ticks.
  *
