@@ -11,8 +11,12 @@
 extern "C" {
 #endif
 
+/** @brief Maximum allowed time span that is considered to be in the future.
+ */
+#define NRF_RTC_TIMER_MAX_SCHEDULE_SPAN (BIT(23) - 1)
+
 typedef void (*z_nrf_rtc_timer_compare_handler_t)(int32_t id,
-						uint32_t cc_value,
+						uint64_t cc_value,
 						void *user_data);
 
 /** @brief Allocate RTC compare channel.
@@ -30,11 +34,11 @@ int32_t z_nrf_rtc_timer_chan_alloc(void);
  */
 void z_nrf_rtc_timer_chan_free(int32_t chan);
 
-/** @brief Read current RTC counter value.
+/** @brief Read current absolute time.
  *
- * @return Current RTC counter value.
+ * @return Current absolute time.
  */
-uint32_t z_nrf_rtc_timer_read(void);
+uint64_t z_nrf_rtc_timer_read(void);
 
 /** @brief Get COMPARE event register address.
  *
@@ -88,18 +92,21 @@ uint32_t z_nrf_rtc_timer_compare_read(int32_t chan);
  *
  * @param chan Channel ID between 1 and CONFIG_NRF_RTC_TIMER_USER_CHAN_COUNT.
  *
- * @param cc_value Absolute value. Values which are further distanced from
- * current counter value than half RTC span are considered in the past.
+ * @param target_time Absolute target time. Values which are further distanced
+ * from current absolute time than half RTC span will cause the timer to fire
+ * at an undefined time.
  *
  * @param handler User function called in the context of the RTC interrupt.
  *
  * @param user_data Data passed to the handler.
  */
-void z_nrf_rtc_timer_compare_set(int32_t chan, uint32_t cc_value,
-			       z_nrf_rtc_timer_compare_handler_t handler,
-			       void *user_data);
+void z_nrf_rtc_timer_set(int32_t chan, uint64_t target_time,
+			 z_nrf_rtc_timer_compare_handler_t handler,
+			 void *user_data);
 
 /** @brief Convert system clock time to RTC ticks.
+ *
+ * TODO: should this function be refactored (e.g. to return uint64_t)?
  *
  * @p t can be absolute or relative. @p t cannot be further from now than half
  * of the RTC range (e.g. 256 seconds if RTC is running at 32768 Hz).
