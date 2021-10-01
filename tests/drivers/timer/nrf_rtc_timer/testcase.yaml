@@ -8,11 +8,3 @@ tests:
   drivers.timer.nrf_rtc_timer_no_zli:
     tags: drivers
     platform_allow: nrf52dk_nrf52832 nrf52840dk_nrf52840 nrf52_bsim
-
-  drivers.timer.nrf_rtc_timer_overflow:
-    tags: drivers
-    platform_allow: nrf52dk_nrf52832 nrf52840dk_nrf52840
-    extra_configs:
-      - CONFIG_ZERO_LATENCY_IRQS=y
-      - CONFIG_INJECT_OVERFLOW_COUNTER=y
-      - CONFIG_TICKS_SOURCE_NRF_RTC_TIMER=y
