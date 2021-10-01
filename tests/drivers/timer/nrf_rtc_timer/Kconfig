@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config INJECT_OVERFLOW_COUNTER
+    bool "Inject overflow counter"
+    default n
+
+config OVERFLOW_COUNTER
+    int "Overflow counter value"
+    default 10
+    depends on INJECT_OVERFLOW_COUNTER
+
+choice TICKS_SOURCE
+    prompt "Ticks source"
+    default TICKS_SOURCE_KERNEL
+
+config TICKS_SOURCE_KERNEL
+    bool "Get ticks from kernel"
+
+config TICKS_SOURCE_NRF_RTC_TIMER
+    bool "Get ticks from nRF RTC  timer"
+
+endchoice
+
+source "Kconfig.zephyr"
