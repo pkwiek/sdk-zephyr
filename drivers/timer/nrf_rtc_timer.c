@@ -44,8 +44,11 @@ struct z_nrf_rtc_timer_chan_data {
 };
 
 static struct z_nrf_rtc_timer_chan_data cc_data[CHAN_COUNT];
-static atomic_t int_mask;
+static uint32_t int_mask;
 static atomic_t alloc_mask;
+
+static volatile uint32_t m_overflow_cnt;
+static volatile uint8_t  m_mutex;
 
 static uint32_t counter_sub(uint32_t a, uint32_t b)
 {
@@ -84,11 +87,6 @@ static uint32_t counter(void)
 
 static inline bool mutex_get(void)
 {
-	// TODO: verify if LDREX, STREX, CLREX, DMB etc. can stay as they are or
-	// if they must be replaced with zephyr's primitives
-	//
-	// Take into account that e.g. zephyr's atomic compare and swap uses spin lock
-	// to ensure atomicity, which will probably not work with ZLIs
 	do
 	{
 		volatile uint8_t mutex_value = __LDREXB(&m_mutex);
@@ -103,7 +101,14 @@ static inline bool mutex_get(void)
 
 	/* Disable OVERFLOW interrupt to prevent lock-up in interrupt context
 	 * while mutex is locked from lower priority context and OVERFLOW event
-	 * flag is stil up. */
+	 * flag is still up.
+	 *
+	 * This line should not be placed before acquiring the mutex to avoid a
+	 * situation where interrupts are disabled unconditionally despite the
+	 * mutex being locked. If executed by a high priority interrupt that
+	 * could lead to preempting lower priority context releasing the mutex
+	 * which would result in OVERFLOW interrupts being permanently disabled.
+	 */
 	nrf_rtc_int_disable(RTC, NRF_RTC_INT_OVERFLOW_MASK);
 
 	__DMB();
@@ -162,7 +167,7 @@ static uint32_t overflow_counter_get(void)
 			/* It's virtually impossible that overflow event is
 			 * pending again before next instruction is performed.
 			 * It is an error condition. */
-			assert(m_overflow_cnt & 0x01);
+			__ASSERT_NO_MSG(m_overflow_cnt & 0x01);
 
 			/* Increment the counter for the second time, to allow
 			 * instructions from other context get correct value of
@@ -239,7 +244,13 @@ bool z_nrf_rtc_timer_compare_int_lock(int32_t chan)
 {
 	__ASSERT_NO_MSG(chan && chan < CHAN_COUNT);
 
-	atomic_val_t prev = atomic_and(&int_mask, ~BIT(chan));
+	uint32_t mcu_critical_state = __get_PRIMASK();
+	__disable_irq();
+
+	uint32_t prev = int_mask;
+	int_mask &= ~BIT(chan);
+
+	__set_PRIMASK(mcu_critical_state);
 
 	nrf_rtc_int_disable(RTC, RTC_CHANNEL_INT_MASK(chan));
 
@@ -251,8 +262,13 @@ void z_nrf_rtc_timer_compare_int_unlock(int32_t chan, bool key)
 	__ASSERT_NO_MSG(chan && chan < CHAN_COUNT);
 
 	if (key) {
-		/* TODO: Does this code handle ZLIs correctly? */
-		atomic_or(&int_mask, BIT(chan));
+		uint32_t mcu_critical_state = __get_PRIMASK();
+		__disable_irq();
+
+		int_mask |= BIT(chan);
+
+		__set_PRIMASK(mcu_critical_state);
+
 		nrf_rtc_int_enable(RTC, RTC_CHANNEL_INT_MASK(chan));
 	}
 }
@@ -287,7 +303,7 @@ int z_nrf_rtc_timer_get_ticks(k_timeout_t t)
 	result = abs_ticks - curr_tick;
 
 	if ((result > COUNTER_HALF_SPAN) ||
-		(result < -(int64_t)COUNTER_HALF_SPAN)) {
+	    (result < -(int64_t)COUNTER_HALF_SPAN)) {
 		return -EINVAL;
 	}
 
@@ -357,33 +373,13 @@ static void compare_set(int32_t chan, uint32_t cc_value,
 	set_absolute_alarm(chan, cc_value);
 }
 
-static bool target_time_within_allowed_timespan(uint64_t target_time)
-{
-	uint64_t now = z_nrf_rtc_timer_read();
-
-	/* It's safe to assume that 64-bit values will never overflow,
-	   so a direct comparison should always yield correct result */
-	if (target_time > now)
-	{
-		return (target_time - now) <= COUNTER_HALF_SPAN;
-	}
-	else
-	{
-		return true;
-	}
-
-}
-
-void z_nrf_rtc_timer_compare_set(int32_t chan, uint64_t target_time,
-				  z_nrf_rtc_timer_compare_handler_t handler,
-				  void *user_data)
+void z_nrf_rtc_timer_set(int32_t chan, uint64_t target_time,
+			 z_nrf_rtc_timer_compare_handler_t handler,
+			 void *user_data)
 {
 	__ASSERT_NO_MSG(chan && chan < CHAN_COUNT);
 
 	bool key = z_nrf_rtc_timer_compare_int_lock(chan);
-
-	bool target_time_is_valid = target_time_within_allowed_timespan(target_time);
-	__ASSERT_NO_MSG(target_time_is_valid);
 
 	uint32_t cc_value = target_time_to_cc(target_time);
 
@@ -393,8 +389,8 @@ void z_nrf_rtc_timer_compare_set(int32_t chan, uint64_t target_time,
 }
 
 static void sys_clock_timeout_handler(int32_t chan,
-					  uint32_t cc_value,
-					  void *user_data)
+				      uint64_t cc_value,
+				      void *user_data)
 {
 	uint32_t dticks = counter_sub(cc_value, last_count) / CYC_PER_TICK;
 
@@ -405,7 +401,7 @@ static void sys_clock_timeout_handler(int32_t chan,
 		 * so it won't get preempted by the interrupt.
 		 */
 		compare_set(chan, last_count + CYC_PER_TICK,
-					  sys_clock_timeout_handler, NULL);
+			    sys_clock_timeout_handler, NULL);
 	}
 
 	sys_clock_announce(IS_ENABLED(CONFIG_TICKLESS_KERNEL) ?
@@ -427,22 +423,38 @@ void rtc_nrf_isr(const void *arg)
 	if (nrf_rtc_int_enable_check(RTC, NRF_RTC_INT_OVERFLOW_MASK) &&
 		nrf_rtc_event_check(RTC, NRF_RTC_EVENT_OVERFLOW))
 	{
-		/* TODO: It's possible that disabling OVERFLOW interrupt is needed
-		 * due to a sophisticated race condition that we're not yet aware of. */
+		/* If OVERFLOW event becomes active during processing of
+		 * overflow_counter_get() in a lower priority context, it is
+		 * possible to preempt the lower priority context after it takes
+		 * the mutex and before it disables the OVERFLOW interrupt. This
+		 * situation would lead to a lock-up in interrupt context. It is
+		 * caused by OVERFLOW interrupt enable/disable mechanism - refer
+		 * to mutex_get() and mutex_release() for more information.
+		 * In the described case the interrupt context would be unable
+		 * to acquire the mutex, this means it would be unable to clear
+		 * the OVERFLOW flag or disable the OVERFLOW interrupt as well.
+		 * Leaving it continuously pending.
+		 * OVERFLOW interrupt will be re-enabled when mutex is released
+		 * - either from this handler, or from lower priority context
+		 * that locked the mutex. */
+		nrf_rtc_int_disable(RTC, NRF_RTC_INT_OVERFLOW_MASK);
+
 		(void)overflow_counter_get();
 	}
 
 	for (int32_t chan = 0; chan < CHAN_COUNT; chan++) {
 		if (nrf_rtc_int_enable_check(RTC, RTC_CHANNEL_INT_MASK(chan)) &&
-			nrf_rtc_event_check(RTC, RTC_CHANNEL_EVENT_ADDR(chan))) {
+		    nrf_rtc_event_check(RTC, RTC_CHANNEL_EVENT_ADDR(chan))) {
 			uint32_t cc_val;
 			uint32_t now;
+			uint32_t overflow;
+			uint64_t time;
 			z_nrf_rtc_timer_compare_handler_t handler;
 
 			event_clear(chan);
 			event_disable(chan);
 			cc_val = get_comparator(chan);
-			now = counter();
+			overflow_and_counter_get(&overflow, &now);
 
 			/* Higher priority interrupt may already changed cc_val
 			 * which now points to the future. In that case return
@@ -453,11 +465,13 @@ void rtc_nrf_isr(const void *arg)
 				cc_val = now;
 			}
 
+			time = overflow_and_counter_to_target_time(overflow,
+								   cc_val);
+
 			handler = cc_data[chan].callback;
 			cc_data[chan].callback = NULL;
 			if (handler) {
-				handler(chan, cc_val,
-					cc_data[chan].user_context);
+				handler(chan, time, cc_data[chan].user_context);
 			}
 		}
 	}
@@ -504,7 +518,7 @@ int sys_clock_driver_init(const struct device *dev)
 	NVIC_ClearPendingIRQ(RTC_IRQn);
 
 	IRQ_CONNECT(RTC_IRQn, DT_IRQ(DT_NODELABEL(RTC_LABEL), priority),
-			rtc_nrf_isr, 0, 0);
+		    rtc_nrf_isr, 0, 0);
 	irq_enable(RTC_IRQn);
 
 	nrf_rtc_task_trigger(RTC, NRF_RTC_TASK_CLEAR);
@@ -517,7 +531,7 @@ int sys_clock_driver_init(const struct device *dev)
 
 	if (!IS_ENABLED(CONFIG_TICKLESS_KERNEL)) {
 		compare_set(0, counter() + CYC_PER_TICK,
-				sys_clock_timeout_handler, NULL);
+			    sys_clock_timeout_handler, NULL);
 	}
 
 	z_nrf_clock_control_lf_on(mode);

@@ -16,7 +16,7 @@ extern "C" {
 #define NRF_RTC_TIMER_MAX_SCHEDULE_SPAN (BIT(23) - 1)
 
 typedef void (*z_nrf_rtc_timer_compare_handler_t)(int32_t id,
-						uint32_t cc_value,
+						uint64_t cc_value,
 						void *user_data);
 
 /** @brief Allocate RTC compare channel.
@@ -100,9 +100,9 @@ uint32_t z_nrf_rtc_timer_compare_read(int32_t chan);
  *
  * @param user_data Data passed to the handler.
  */
-void z_nrf_rtc_timer_compare_set(int32_t chan, uint64_t target_time,
-			       z_nrf_rtc_timer_compare_handler_t handler,
-			       void *user_data);
+void z_nrf_rtc_timer_set(int32_t chan, uint64_t target_time,
+			 z_nrf_rtc_timer_compare_handler_t handler,
+			 void *user_data);
 
 /** @brief Convert system clock time to RTC ticks.
  *
