@@ -134,6 +134,12 @@ config NRF_802154_TEMPERATURE_UPDATE_PERIOD
 	help
 	  Period of a temperature update for nRF 802.15.4 driver in milliseconds
 
+config NRF_802154_EXPERIMENTAL_PLATFORM
+	bool "nRF 802.15.4 experimental platform"
+	depends on !NRF_802154_SL_OPENSOURCE
+	help
+	  Enable use of experimental nRF 802.15.4 Radio Driver platform
+
 endif # NRF_802154_RADIO_DRIVER
 
 config NRF_802154_SERIALIZATION

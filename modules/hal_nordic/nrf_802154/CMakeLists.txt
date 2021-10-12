@@ -15,10 +15,16 @@ if (CONFIG_NRF_802154_RADIO_DRIVER)
       ${CMAKE_CURRENT_SOURCE_DIR}/sl_opensource/platform/nrf_802154_temperature_zephyr.c
   )
 
-  if (CONFIG_SOC_SERIES_NRF53X AND NOT CONFIG_NRF_802154_SL_OPENSOURCE)
+  if (CONFIG_SOC_SERIES_NRF53X AND NOT CONFIG_NRF_802154_SL_OPENSOURCE
+      AND NOT CONFIG_NRF_802154_EXPERIMENTAL_PLATFORM)
     target_sources(nrf-802154-platform
       PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/sl_opensource/platform/nrf_802154_lp_timer_zephyr.c
+    )
+  elseif(NOT CONFIG_NRF_802154_SL_OPENSOURCE AND CONFIG_NRF_802154_EXPERIMENTAL_PLATFORM)
+    target_sources(nrf-802154-platform
+      PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/sl_opensource/platform/nrf_802154_platform_sl_lptimer_zephyr.c
     )
   endif ()
 endif ()
