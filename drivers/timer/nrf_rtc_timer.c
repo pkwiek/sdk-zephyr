@@ -396,6 +396,29 @@ static bool channel_processing_check_and_clear(int32_t chan)
 	return result;
 }
 
+static uint32_t full_int_lock(void)
+{
+	uint32_t mcu_critical_state = __get_PRIMASK();
+
+	if (IS_ENABLED(CONFIG_ZERO_LATENCY_IRQS)) {
+		mcu_critical_state = __get_PRIMASK();
+		__disable_irq();
+	} else {
+		mcu_critical_state = irq_lock();
+	}
+
+	return mcu_critical_state;
+}
+
+static void full_int_unlock(uint32_t mcu_critical_state)
+{
+	if (IS_ENABLED(CONFIG_ZERO_LATENCY_IRQS)) {
+		__set_PRIMASK(mcu_critical_state);
+	} else {
+		irq_unlock(mcu_critical_state);
+	}
+}
+
 static void process_channel(int32_t chan)
 {
 	if (channel_processing_check_and_clear(chan)) {
@@ -412,8 +435,7 @@ static void process_channel(int32_t chan)
 		 * cc_data structure and prevent higher priority contexts
 		 * (including ZLIs) from overwriting it.
 		 */
-		mcu_critical_state = __get_PRIMASK();
-		__disable_irq();
+		mcu_critical_state = full_int_lock();
 
 		/* If target_cc is in the past or is equal to current counter
 		 * value, execute the handler.
@@ -425,7 +447,7 @@ static void process_channel(int32_t chan)
 			cc_data[chan].callback = NULL;
 		}
 
-		__set_PRIMASK(mcu_critical_state);
+		full_int_unlock(mcu_critical_state);
 
 		if (handler) {
 			handler(chan, curr_time, user_context);
