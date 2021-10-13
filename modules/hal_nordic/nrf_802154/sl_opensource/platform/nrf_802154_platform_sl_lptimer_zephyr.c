@@ -49,8 +49,6 @@ void nrf_802154_platform_sl_lp_timer_init(void)
 		assert(false);
 		return;
 	}
-
-	(void)z_nrf_rtc_timer_compare_int_lock(m_rtc_channel);
 }
 
 void nrf_802154_platform_sl_lp_timer_deinit(void)
