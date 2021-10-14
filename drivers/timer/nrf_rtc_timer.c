@@ -45,12 +45,12 @@ struct z_nrf_rtc_timer_chan_data {
 	void *user_context;
 	uint32_t target_cc;
 	uint64_t target_time;
-	atomic_t force_isr;
 };
 
 static struct z_nrf_rtc_timer_chan_data cc_data[CHAN_COUNT];
 static atomic_t int_mask;
 static atomic_t alloc_mask;
+static atomic_t force_isr_mask;
 
 static uint32_t counter_sub(uint32_t a, uint32_t b)
 {
@@ -117,7 +117,7 @@ void z_nrf_rtc_timer_compare_int_unlock(int32_t chan, bool key)
 	if (key) {
 		atomic_or(&int_mask, BIT(chan));
 		nrf_rtc_int_enable(RTC, RTC_CHANNEL_INT_MASK(chan));
-		if (atomic_get(&cc_data[chan].force_isr)) {
+		if (atomic_get(&force_isr_mask) & BIT(chan)) {
 			NVIC_SetPendingIRQ(RTC_IRQn);
 		}
 	}
@@ -265,7 +265,7 @@ int z_nrf_rtc_timer_set(int32_t chan, uint64_t target_time,
 		cc_data[chan].target_cc = cc_value;
 
 		/* Force ISR hadling when exiting from critical section. */
-		atomic_set(&cc_data[chan].force_isr, 1);
+		atomic_or(&force_isr_mask, BIT(chan));
 	}
 
 	z_nrf_rtc_timer_compare_int_unlock(chan, key);
@@ -394,19 +394,10 @@ static bool channel_processing_check_and_clear(int32_t chan)
 		/* The processing of channel can be caused by CC match
 		 * or be forced.
 		 */
-		result = atomic_get(&cc_data[chan].force_isr) ||
+		result = atomic_and(&force_isr_mask, ~BIT(chan)) ||
 			 nrf_rtc_event_check(RTC, RTC_CHANNEL_EVENT_ADDR(chan));
 
 		if (result) {
-			/* Clear the force_isr flag.
-			 * Atomic clear is not used to prevent inserting
-			 * additional barrier instructions. As this code is
-			 * executed inside a full IRQ disabling critical section
-			 * and exiting the critical section with __set_PRIMASK
-			 * contains a barrier.
-			 */
-			cc_data[chan].force_isr = 0;
-
 			nrf_rtc_event_clear(RTC, RTC_CHANNEL_EVENT_ADDR(chan));
 			nrf_rtc_event_disable(RTC, RTC_CHANNEL_INT_MASK(chan));
 		}
