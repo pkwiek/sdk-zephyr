@@ -22,10 +22,13 @@ static uint32_t m_critical_section_cnt;
 void rtc_irq_handler(int32_t id, uint64_t expire_time, void *user_data)
 {
 	(void)user_data;
+	(void)expire_time;
 
 	assert(id == m_rtc_channel);
 
-	nrf_802154_sl_timer_handler(expire_time);
+	uint64_t curr_time = z_nrf_rtc_timer_read();
+
+	nrf_802154_sl_timer_handler(curr_time);
 }
 
 void nrf_802154_clock_lfclk_ready(void)
