@@ -408,12 +408,10 @@ static void test_overflow(void)
 	      "event occurred at %llu ticks (uptime)\n",
 	      now, target_time, evt_uptime);
 
-	/* Schedule event in the past, but in range of
-	 * NRF_RTC_TIMER_MAX_SCHEDULE_SPAN.
-	 */
+	/* Schedule event far in the past. */
 	evt_uptime = UINT64_MAX;
 	now = z_nrf_rtc_timer_read();
-	target_time = now - NRF_RTC_TIMER_MAX_SCHEDULE_SPAN / 2;
+	target_time = now - 2 * NRF_RTC_TIMER_MAX_SCHEDULE_SPAN;
 
 	z_nrf_rtc_timer_set(chan, target_time, overflow_sched_handler,
 			    &evt_uptime);

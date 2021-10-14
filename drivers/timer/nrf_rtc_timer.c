@@ -44,6 +44,7 @@ struct z_nrf_rtc_timer_chan_data {
 	z_nrf_rtc_timer_compare_handler_t callback;
 	void *user_context;
 	uint32_t target_cc;
+	uint64_t target_time;
 	atomic_t force_isr;
 };
 
@@ -163,7 +164,7 @@ int z_nrf_rtc_timer_get_ticks(k_timeout_t t)
  * less than COUNTER_HALF_SPAN from now. It detects late setting and also
  * handle +1 cycle case.
  */
-static void set_absolute_alarm(int32_t chan, uint32_t abs_val)
+static uint32_t set_absolute_alarm(int32_t chan, uint32_t abs_val)
 {
 	uint32_t now;
 	uint32_t now2;
@@ -200,17 +201,20 @@ static void set_absolute_alarm(int32_t chan, uint32_t abs_val)
 		 */
 	} while ((now2 != now) &&
 		 (counter_sub(cc_val, now2 + 2) > COUNTER_HALF_SPAN));
+
+	return cc_val;
 }
 
+/* This function operates on 32-bit values. It can be used directly when
+ * 64-bit absolute time is not required.
+ */
 static void compare_set(int32_t chan, uint32_t cc_value,
 			z_nrf_rtc_timer_compare_handler_t handler,
 			void *user_data)
 {
 	cc_data[chan].callback = handler;
 	cc_data[chan].user_context = user_data;
-	cc_data[chan].target_cc = cc_value;
-
-	set_absolute_alarm(chan, cc_value);
+	cc_data[chan].target_cc = set_absolute_alarm(chan, cc_value);
 }
 
 int z_nrf_rtc_timer_set(int32_t chan, uint64_t target_time,
@@ -230,9 +234,25 @@ int z_nrf_rtc_timer_set(int32_t chan, uint64_t target_time,
 		if (target_time - curr_time > COUNTER_SPAN) {
 			/* Target time is too distant. */
 			ret = -EINVAL;
-		} else if (cc_value != cc_data[chan].target_cc) {
-			/* Target time is valid. Set it. */
+		} else if (target_time != cc_data[chan].target_time) {
+			/* Target time is valid. Set CC value. */
 			compare_set(chan, cc_value, handler, user_data);
+
+			/* Update the absolute expiration time based on
+			 * CC value that was set.
+			 */
+			uint64_t set_time = target_time & ~COUNTER_MAX;
+
+			set_time += cc_data[chan].target_cc;
+
+			if (cc_value > cc_data[chan].target_cc) {
+				/* CC value was set after an overflow. Correct
+				 * target_time by a counter overflow value.
+				 */
+				set_time += COUNTER_SPAN;
+			}
+
+			cc_data[chan].target_time = set_time;
 		} else {
 			/* Provided target time was already set. */
 			cc_data[chan].callback = handler;
@@ -241,6 +261,7 @@ int z_nrf_rtc_timer_set(int32_t chan, uint64_t target_time,
 	} else {
 		cc_data[chan].callback = handler;
 		cc_data[chan].user_context = user_data;
+		cc_data[chan].target_time = target_time;
 		cc_data[chan].target_cc = cc_value;
 
 		/* Force ISR hadling when exiting from critical section. */
@@ -330,8 +351,8 @@ static void sys_clock_timeout_handler(int32_t chan,
 				      uint64_t expire_time,
 				      void *user_data)
 {
-	uint32_t dticks = counter_sub(expire_time, last_count) / CYC_PER_TICK;
 	uint32_t cc_value = absolute_time_to_cc(expire_time);
+	uint32_t dticks = counter_sub(cc_value, last_count) / CYC_PER_TICK;
 
 	last_count += dticks * CYC_PER_TICK;
 
@@ -426,6 +447,7 @@ static void process_channel(int32_t chan)
 		void *user_context;
 		uint32_t mcu_critical_state;
 		uint64_t curr_time;
+		uint64_t expire_time;
 		z_nrf_rtc_timer_compare_handler_t handler = NULL;
 
 		curr_time = z_nrf_rtc_timer_read();
@@ -440,8 +462,23 @@ static void process_channel(int32_t chan)
 		/* If target_cc is in the past or is equal to current counter
 		 * value, execute the handler.
 		 */
-		if (counter_sub(counter, cc_data[chan].target_cc)
-		    < COUNTER_HALF_SPAN) {
+		if ((cc_data[chan].target_time != 0U) &&
+		    (curr_time >= cc_data[chan].target_time)) {
+			/* Absolute time is used by this channel. */
+			expire_time = cc_data[chan].target_time;
+
+			/* Latch an reset handler data. */
+			handler = cc_data[chan].callback;
+			user_context = cc_data[chan].user_context;
+			cc_data[chan].callback = NULL;
+		} else if (counter_sub(counter, cc_data[chan].target_cc)
+			 < COUNTER_HALF_SPAN) {
+			/* Absolute time is not used by this channel.
+			 * expire time is equivalent to target_cc value.
+			 */
+			expire_time = cc_data[chan].target_cc;
+
+			/* Latch an reset handler data. */
 			handler = cc_data[chan].callback;
 			user_context = cc_data[chan].user_context;
 			cc_data[chan].callback = NULL;
@@ -450,7 +487,7 @@ static void process_channel(int32_t chan)
 		full_int_unlock(mcu_critical_state);
 
 		if (handler) {
-			handler(chan, curr_time, user_context);
+			handler(chan, expire_time, user_context);
 		}
 	}
 }

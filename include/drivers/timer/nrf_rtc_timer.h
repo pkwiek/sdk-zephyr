@@ -15,6 +15,19 @@ extern "C" {
  */
 #define NRF_RTC_TIMER_MAX_SCHEDULE_SPAN (BIT(24) - 1)
 
+/** @brief RTC timer compare event handler.
+ *
+ * Called from RTC ISR context when processing a compare event.
+ *
+ * @param id Compare channel ID.
+ *
+ * @param expire_time An actual absolute expiration time set for a compare
+ *		      channel. It can differ from the requested target time
+ *		      and the difference can be used to determine whether the
+ *		      time set was delayed.
+ *
+ * @param user_data Pointer to a user context data.
+ */
 typedef void (*z_nrf_rtc_timer_compare_handler_t)(int32_t id,
 						uint64_t expire_time,
 						void *user_data);
@@ -105,6 +118,10 @@ int z_nrf_rtc_timer_set(int32_t chan, uint64_t target_time,
 			 void *user_data);
 
 /** @brief Abort a timer requested with @ref z_nrf_rtc_timer_set.
+ *
+ * If an abort operation is performed too late it is still possible for an event
+ * to fire. The user can detect a spurious event by comparing absolute time
+ * provided in callback and a result of @ref z_nrf_rtc_timer_read.
  *
  * @param chan Channel ID between 1 and CONFIG_NRF_RTC_TIMER_USER_CHAN_COUNT.
  */
