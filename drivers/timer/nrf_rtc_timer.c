@@ -410,7 +410,7 @@ static bool channel_processing_check_and_clear(int32_t chan)
 
 static uint32_t full_int_lock(void)
 {
-	uint32_t mcu_critical_state = __get_PRIMASK();
+	uint32_t mcu_critical_state;
 
 	if (IS_ENABLED(CONFIG_ZERO_LATENCY_IRQS)) {
 		mcu_critical_state = __get_PRIMASK();
