@@ -38,7 +38,7 @@ BUILD_ASSERT(CHAN_COUNT <= RTC_CH_COUNT, "Not enough compare channels");
 static uint32_t overflow_cnt;
 static atomic_t anchor_mutex;
 static volatile uint64_t anchor;
-static uint32_t last_count;
+static uint64_t last_count;
 
 struct z_nrf_rtc_timer_chan_data {
 	z_nrf_rtc_timer_compare_handler_t callback;
@@ -351,7 +351,7 @@ static void sys_clock_timeout_handler(int32_t chan,
 				      void *user_data)
 {
 	uint32_t cc_value = absolute_time_to_cc(expire_time);
-	uint32_t dticks = counter_sub(cc_value, last_count) / CYC_PER_TICK;
+	uint64_t dticks = (expire_time - last_count) / CYC_PER_TICK;
 
 	last_count += dticks * CYC_PER_TICK;
 
@@ -366,7 +366,7 @@ static void sys_clock_timeout_handler(int32_t chan,
 	}
 
 	sys_clock_announce(IS_ENABLED(CONFIG_TICKLESS_KERNEL) ?
-						dticks : (dticks > 0));
+			   (int32_t)dticks : (dticks > 0));
 
 	if (cc_value == get_comparator(chan)) {
 		/* New value was not set. Set something that can update anchor.
@@ -572,7 +572,7 @@ void sys_clock_set_timeout(int32_t ticks, bool idle)
 	ticks = (ticks == K_TICKS_FOREVER) ? MAX_TICKS : ticks;
 	ticks = CLAMP(ticks - 1, 0, (int32_t)MAX_TICKS);
 
-	uint32_t unannounced = counter_sub(counter(), last_count);
+	uint32_t unannounced = z_nrf_rtc_timer_read() - last_count;
 
 	/* If we haven't announced for more than half the 24-bit wrap
 	 * duration, then force an announce to avoid loss of a wrap
@@ -597,8 +597,9 @@ void sys_clock_set_timeout(int32_t ticks, bool idle)
 		cyc = MAX_CYCLES;
 	}
 
-	cyc += last_count;
-	compare_set(0, cyc, sys_clock_timeout_handler, NULL);
+	uint64_t target_time = cyc + last_count;
+
+	compare_set(0, target_time, sys_clock_timeout_handler, NULL);
 }
 
 uint32_t sys_clock_elapsed(void)
@@ -607,7 +608,7 @@ uint32_t sys_clock_elapsed(void)
 		return 0;
 	}
 
-	return counter_sub(counter(), last_count) / CYC_PER_TICK;
+	return (z_nrf_rtc_timer_read() - last_count) / CYC_PER_TICK;
 }
 
 uint32_t sys_clock_cycle_get_32(void)
