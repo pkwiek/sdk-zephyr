@@ -202,7 +202,7 @@ static void test_get_ticks(void)
 		     "Unexpected result %d (expected: %d)", ticks, exp_ticks);
 
 	/* too far in the future */
-	t = Z_TIMEOUT_TICKS(sys_clock_tick_get() + 0x00800001);
+	t = Z_TIMEOUT_TICKS(sys_clock_tick_get() + 0x01000001);
 	ticks = z_nrf_rtc_timer_get_ticks(t);
 	zassert_equal(ticks, -EINVAL, "Unexpected ticks: %d", ticks);
 }

@@ -129,34 +129,33 @@ uint32_t z_nrf_rtc_timer_compare_read(int32_t chan)
 	return nrf_rtc_cc_get(RTC, chan);
 }
 
-int z_nrf_rtc_timer_get_ticks(k_timeout_t t)
+uint64_t z_nrf_rtc_timer_get_ticks(k_timeout_t t)
 {
-	uint32_t curr_count;
+	uint64_t curr_time;
 	int64_t curr_tick;
 	int64_t result;
 	int64_t abs_ticks;
 
 	do {
-		curr_count = counter();
+		curr_time = z_nrf_rtc_timer_read();
 		curr_tick = sys_clock_tick_get();
-	} while (curr_count != counter());
+	} while (curr_time != z_nrf_rtc_timer_read());
 
 	abs_ticks = Z_TICK_ABS(t.ticks);
 	if (abs_ticks < 0) {
 		/* relative timeout */
-		return (t.ticks > COUNTER_HALF_SPAN) ?
-			-EINVAL : ((curr_count + t.ticks) & COUNTER_MAX);
+		return (t.ticks > COUNTER_SPAN) ?
+			-EINVAL : (curr_time + t.ticks);
 	}
 
 	/* absolute timeout */
 	result = abs_ticks - curr_tick;
 
-	if ((result > COUNTER_HALF_SPAN) ||
-	    (result < -(int64_t)COUNTER_HALF_SPAN)) {
+	if (result > COUNTER_SPAN) {
 		return -EINVAL;
 	}
 
-	return (curr_count + result) & COUNTER_MAX;
+	return curr_time + result;
 }
 
 /* Function safely sets absolute alarm. It assumes that provided value is
