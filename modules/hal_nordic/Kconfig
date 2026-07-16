@@ -218,6 +218,16 @@ config NRF_802154_SECURITY_WRITER
 	help
 	  Enable injection of security frame counter.
 
+config NRF_802154_GFSK_2MBPS_PHY
+	bool "Support for the experimental GFSK 2Mbps PHY"
+	default n
+	select EXPERIMENTAL
+	help
+	  Enable the experimental GFSK 2 Mbps PHY in addition to the
+	  standard O-QPSK 250 kbps PHY. When disabled, all GFSK-related
+	  code and the NRF_802154_PHY_EXP1_GFSK_2MBPS enum value are
+	  compiled out.
+
 config NRF_802154_SECURITY_KEY_STORAGE_SIZE
 	int "nRF 802.15.4 security key storage size"
 	default 3

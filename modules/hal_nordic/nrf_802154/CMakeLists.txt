@@ -96,6 +96,12 @@ else()
   target_compile_definitions(zephyr-802154-interface INTERFACE NRF_802154_CARRIER_FUNCTIONS_ENABLED=0)
 endif()
 
+if(CONFIG_NRF_802154_GFSK_2MBPS_PHY)
+  target_compile_definitions(zephyr-802154-interface INTERFACE NRF_802154_GFSK_2MBPS_PHY_ENABLED=1)
+else()
+  target_compile_definitions(zephyr-802154-interface INTERFACE NRF_802154_GFSK_2MBPS_PHY_ENABLED=0)
+endif()
+
 if(CONFIG_NRF_802154_ASSERT_ZEPHYR OR CONFIG_NRF_802154_ASSERT_ZEPHYR_MINIMAL)
   target_include_directories(zephyr-802154-interface INTERFACE include)
   target_compile_definitions(zephyr-802154-interface INTERFACE NRF_802154_PLATFORM_ASSERT_INCLUDE=\"nrf_802154_assert_zephyr.h\")
